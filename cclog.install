@@ -1,0 +1,92 @@
+<?php
+
+/**
+ * @file
+ * Installation functions
+ *
+ * Hooks and functions related to installing and updating the module.
+ */
+
+
+/**
+ * Returns the list of Computer Center logbooks to be created at install time.
+ * We have to have this in a function in order to share it between
+ * install and uninstall hooks.
+ * @return array
+ */
+function _cclog_starter_logbooks() {
+  return array(
+    'NETLOG' => 'Network Logbooks',
+    'SYSTEMLOG' => 'System Logbooks',
+    'SECLOG' => 'Security Logbooks',
+    'SCI-COMPLOG' => 'Scientific Computing Logbooks',
+    'MAINTLOG' => 'Maintenance Logbook',
+    'WINLOG' => 'Windows Logbook',
+    'BUILDLOG' => 'System Build Logbook',
+    'HWLOG' => 'Hardware Logbook',
+    'HPCLOG' => 'High Performance Computing Logbook',
+    'ITSAFETYLOG' => 'IT Safety Division Logbook',
+    'TELELOG' => 'Telecom Logbook',
+  );
+}
+
+
+/**
+ * Create a cclogbooks user role
+ */
+function _cclog_create_roles(){
+  $roles = user_roles(TRUE);
+  if (!in_array('cclogbooks user', $roles)) {
+    $role1 = new stdClass();
+    $role1->name = 'cclogbooks user';
+    if (user_role_save($role1)){
+      watchdog('cclog', t('User Role !role was added.', array('!role' => $role1->name)));
+    }
+  }
+}
+
+/**
+ * Implements hook_install().
+ */
+function cclog_install() {
+
+   $vocab = taxonomy_vocabulary_machine_name_load('logbooks');
+   foreach (_cclog_starter_logbooks() as $name => $desc){
+	 	$existing = taxonomy_get_term_by_name($name, $vocab->machine_name);
+  	    if (empty($existing )) {
+    	  $term = (object) array(
+      	  'name' => $name,
+      	  'description' => $desc,
+      	  'vid' => $vocab->vid,
+    	  );
+    	  if (taxonomy_term_save($term)){
+    		watchdog('cclog', t('Logbook !logbook was added.', array('!logbook' => $name)));
+    	  }
+  	  }
+   }
+   
+   _cclog_create_roles();
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function cclog_uninstall() {
+
+   // watchdog('cclog', t('Logbooks: !logbook .', array('!logbook' => implode(',', array_keys(_cclog_starter_logbooks())))));
+	$vocab = taxonomy_vocabulary_machine_name_load('logbooks');
+	foreach (_cclog_starter_logbooks() as $name => $desc) {
+		$terms = taxonomy_get_term_by_name($name, $vocab->machine_name);
+        foreach ($terms as $term) {
+          //watchdog('cclog', t('Must delete !logbook.', array('!logbook' => $name)));
+          if (taxonomy_term_delete($term->tid)) {
+            watchdog('cclog', t('Logbook !logbook was deleted.', array('!logbook' => $name)));
+          }
+          else {
+            watchdog('cclog', t('Unable to delete Logbook !logbook.', array('!logbook' => $name)));
+          }
+        }
+	}
+}
+
+

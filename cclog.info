@@ -1,0 +1,16 @@
+; $Id$
+ 
+name = Computer Center Logbook Extensions
+description = Jefferson Lab Computer Center Electronic Logbook Module
+package = Elog Module
+core = 7.x
+
+files[] = cclog.module
+ 
+dependencies[] = elog
+dependencies[] = taxonomy
+
+
+
+
+
