@@ -91,7 +91,6 @@ function cclog_cron(){
 }
 
 
-
 function cclog_test(){  
   cclog_process_logxml();
 }
@@ -101,23 +100,25 @@ function cclog_test(){
  * Drupal Logentry nodes.
  */
 function cclog_process_logxml(){
-  $logxmlDir = variable_get('cclog_logxml_dir');
-  cclog_stage_new_logxml_to_unprocessed();
+  $logxmlDir = variable_get('cclog_logxml_dir', NULL);  
+  if ($logxmlDir){
+    cclog_stage_new_logxml_to_unprocessed();
 
-  $files = glob("$logxmlDir/unprocessed/*.xml");
-  foreach ($files as $file){
-    try{
-      //mypr( "Procssing $file");
-      $logentry = cclog_logentry_from_logxml($file);
-      //mypr($logentry->getXML()); 
-      $node = cclog_make_node_from_logentry($logentry);
-      //mypr($node);
-      if ($node && $node->nid){
-        cclog_move_logxml_to_processed($file);
+    $files = glob("$logxmlDir/unprocessed/*.xml");
+    foreach ($files as $file){
+      try{
+        //mypr( "Procssing $file");
+        $logentry = cclog_logentry_from_logxml($file);
+        //mypr($logentry->getXML()); 
+        $node = cclog_make_node_from_logentry($logentry);
+        //mypr($node);
+        if ($node && $node->nid){
+          cclog_move_logxml_to_processed($file);
+        }
+      }catch (Exception $e){      
+        watchdog('cclog', "Exception processing logxml: @ex", array('@ex'=>$e), WATCHDOG_ERROR);
+        cclog_move_logxml_to_exception($file);
       }
-    }catch (Exception $e){      
-      watchdog('cclog', "Exception processing logxml: @ex", array('@ex'=>$e), WATCHDOG_ERROR);
-      cclog_move_logxml_to_exception($file);
     }
   }
 }
