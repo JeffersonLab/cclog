@@ -140,6 +140,7 @@ function cclog_stage_new_logxml_to_unprocessed(){
 
 /**
  * Moves files from the logxml unprocessed dir to the logxml processed dir.
+ * @param string $file
  */
 function cclog_move_logxml_to_processed($file){   
   move_logxml_related_files($file,'processed');
@@ -147,6 +148,7 @@ function cclog_move_logxml_to_processed($file){
 
 /**
  * Moves files from the logxml unprocessed dir to the logxml exception dir.
+ * @param string $file
  */
 function cclog_move_logxml_to_exception($file){ 
   move_logxml_related_files($file,'exception');
