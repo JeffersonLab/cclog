@@ -19,7 +19,7 @@ function cclog_menu(){
   $items['cclog/test'] = array(
     'title callback' => 'Test',
     'page callback' => 'cclog_test',
-    'access arguments' => array('access content'),
+    'access arguments' => array('administer site configuration'),
   );
   return $items;
 }
