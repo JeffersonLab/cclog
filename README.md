@@ -8,8 +8,9 @@ elog module.
 
 ## Installation
 Install using the normal Drupal method of module installation.
-1.  Download/unpack the module in sites/all/modules
-2.  Enable the module
+
+1. Download/unpack the module in sites/all/modules
+2. Enable the module
   1. Through the web pages (admin/modules)
   2. Or using drush ( drush pm-enable cclog)
 
