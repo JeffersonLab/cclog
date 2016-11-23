@@ -1,1 +1,301 @@
 <?php
+
+/**
+ * implements hook_menu();
+ */
+function cclog_menu(){
+  $items = array();
+  
+ 
+  $items['admin/config/elog/cclog'] = array(
+    'title' => 'CCLog',
+    'description' => 'Configuration for cclog-specific settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cclog_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  
+  $items['cclog/test'] = array(
+    'title callback' => 'Test',
+    'page callback' => 'cclog_test',
+    'access arguments' => array('access content'),
+  );
+  return $items;
+}
+
+
+/**
+ * Builds a form to allow administrator to set config options
+ * @param type $form
+ * @param type $form_state
+ * @return string
+ */
+function cclog_settings_form($form, &$form_state) {
+
+  $form['cclog_logxml_dir'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Logxml Directory'),
+    '#description' => t('Top level directory for logxml files.  Must have the subdirectories'
+        . ' new, unprocessed, exception, processed. All must be ownedb by and '
+        . ' writable by web server user.'),
+    '#size' => 60,
+    '#maxlength' => 120,
+    '#required' => TRUE,
+    '#default_value' => variable_get('cclog_logxml_dir'),
+  );
+
+  // Submit button
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save settings'),
+  );
+
+  return $form;
+}
+
+/**
+ * Implements hook_form_validate
+ * @param type $form
+ * @param type $form_state
+ */
+function cclog_settings_form_validate($form, &$form_state) {
+
+  $logxml_path = $form_state['values']['cclog_logxml_dir'];
+  foreach (array('new','unprocessed','exception','processed') as $dir){
+    $required = $logxml_path.'/'.$dir;
+  
+    if (!is_dir($required) && !is_writable($required)) {
+      form_set_error('File System Error', "$required does not exist or is not a writable directory.");
+    }
+  }
+}
+
+/**
+ * Implements hook_form_submit
+ * @param type $form
+ * @param type $form_state
+ */
+function cclog_settings_form_submit($form, &$form_state) {
+  variable_set('cclog_logxml_dir', $form_state['values']['cclog_logxml_dir']);
+  drupal_set_message(t('The settings have been saved'));
+}
+
+
+/*
+ * Implements hook_cron().
+ */
+function cclog_cron(){
+  watchdog('cclog', "Executing cron", NULL, WATCHDOG_INFO);
+  cclog_process_logxml();
+}
+
+
+
+function cclog_test(){  
+  cclog_process_logxml();
+}
+
+/**
+ * Finds any new logxml files and tries to turn them into
+ * Drupal Logentry nodes.
+ */
+function cclog_process_logxml(){
+  $logxmlDir = variable_get('cclog_logxml_dir');
+  cclog_stage_new_logxml_to_unprocessed();
+
+  $files = glob("$logxmlDir/unprocessed/*.xml");
+  foreach ($files as $file){
+    try{
+      //mypr( "Procssing $file");
+      $logentry = cclog_logentry_from_logxml($file);
+      //mypr($logentry->getXML()); 
+      $node = cclog_make_node_from_logentry($logentry);
+      //mypr($node);
+      if ($node && $node->nid){
+        cclog_move_logxml_to_processed($file);
+      }
+    }catch (Exception $e){      
+      watchdog('cclog', "Exception processing logxml: @ex", array('@ex'=>$e), WATCHDOG_ERROR);
+      cclog_move_logxml_to_exception($file);
+    }
+  }
+}
+
+/**
+ * Moves files from the logxml new dir to the logxml unprocessed dir.
+ */
+function cclog_stage_new_logxml_to_unprocessed(){
+  $logxmlDir = variable_get('cclog_logxml_dir'); 
+  $files = glob("$logxmlDir/new/*.xml");
+  foreach ($files as $file){
+    //To avoid moving an incomplete file to unprocessed, check
+    //for the existence of a closing </log_entry> tag
+    if (strstr(file_get_contents($file), '</log_entry>')){
+      move_logxml_related_files($file,'unprocessed');
+    }
+  }
+}
+
+/**
+ * Moves files from the logxml unprocessed dir to the logxml processed dir.
+ */
+function cclog_move_logxml_to_processed($file){   
+  move_logxml_related_files($file,'processed');
+}
+
+/**
+ * Moves files from the logxml unprocessed dir to the logxml exception dir.
+ */
+function cclog_move_logxml_to_exception($file){ 
+  move_logxml_related_files($file,'exception');
+}
+
+
+/**
+ * Moves files to the specified logxml subdir.
+ * @param string $file the full xml path/file name
+ * @param string $dest (new|unprocessed|processed|exception)
+ */
+function move_logxml_related_files($file,$dest){
+  if (stristr($file,'.xml')){
+    $logxmlDir = variable_get('cclog_logxml_dir');
+    foreach (cclog_get_logxml_related_files($file) as $fileToMove){
+        $pathParts = pathinfo($fileToMove);        
+        $newName = $logxmlDir.'/'.$dest.'/'.$pathParts['basename'];       
+        mypr("mv $fileToMove $newName");
+        rename($fileToMove, $newName);
+      }
+   }
+}
+
+
+/**
+ * Returns the array of file names that complete a logxml entry.
+ * When there are attachments, they will be in separate, but similarly
+ * named files.
+ * 
+ * @param string $file
+ * @return array
+ */
+function cclog_get_logxml_related_files($file){
+  // The attachments of a log_entry xml file would be in
+  // the same directory and be found by having the same base
+  // filename.
+  // ex: 20110623_153145_11721.xml, 20110623_153145_11721.attach_1.png
+  $pathParts = pathinfo($file);
+  $basename = basename($file,'.xml');
+  return glob($pathParts['dirname'].'/'.$basename.'*');  
+}
+
+/**
+ * Saves a Logentry object as a Logentry node.
+ * @param Logentry $logentry
+ * @return mixed node object or NULL
+ * @throws Exception
+ */
+function cclog_make_node_from_logentry(Logentry $logentry){
+  $node = NodeUtil::newNodeFromLogentry($logentry, 'apache');
+
+  // Set the effective user to the submitter so that revisions get
+  // attributed properly
+  if ($node->uid){
+    if ($node->uid == 1){
+      throw new Exception("User admin may not submit entries via XML");
+    }
+    $user = user_load($node->uid);
+  }
+    
+  if($node = node_submit($node)) { // Prepare node for saving    
+      // The node_submit above screws up our date!
+      // @todo prevent revision being newer than prior version?
+      if ($logentry->created){
+          $node->created = strtotime($logentry->created);
+      }
+      node_save($node);
+      return $node;
+  }
+  return NULL;
+}
+   
+  
+
+/**
+ * Parses a file in the old logxml format and returns a Logentry Object
+ * constructed from its contents.
+ * 
+ * @global string $cclogNewDir
+ * @param string $file
+ * @return Logentry
+ * @throws
+ */
+function cclog_logentry_from_logxml($file){
+  global $cclogNewDir;
+
+  // Ensure the elog module is loaded
+  //module_load_include('php', 'elog', 'Logentry.inc');
+  $doc = new DOMDocument();
+  $doc->load($file);
+  $dom = $doc->getElementsByTagName('log_entry')->item(0);
+
+  //We know every logxml entry had to have a title
+  //and it's also the minimal item necessary to invoke
+  //the constructor of Logentry.
+  $title = $dom->getElementsByTagName('title')->item(0)->nodeValue;     
+  $logentry = new Logentry($title);
+
+  //The timestamp on the xml file was the official creation time
+  $logentry->setCreated(filemtime($file));
+  
+  for ($i=0; $i < $dom->getElementsByTagName('logbook')->length; $i++){
+    $logentry->addLogbook(strtoupper($dom->getElementsByTagName('logbook')->item($i)->nodeValue));
+  }
+
+  //The os_user field will be used as the default author.
+  if ($dom->getElementsByTagName('os_user')->length > 0){
+    $logentry->setAuthor($dom->getElementsByTagName('os_user')->item(0)->nodeValue);
+  }
+
+  //However, if there are log_user nodes, 
+  //use the first one as the author in lieu of default from os_user.
+  //Make all of the log_user nodes into EntryMakers
+  for ($i=0; $i < $dom->getElementsByTagName('log_user')->length; $i++){
+    // Need to guard against common error of empty log_user nodes
+    if ($dom->getElementsByTagName('log_user')->item(0)->nodeValue != ''){
+      if ($i == 0){
+        $logentry->setAuthor($dom->getElementsByTagName('log_user')->item(0)->nodeValue);
+      }
+      $logentry->addEntryMaker($dom->getElementsByTagName('log_user')->item($i)->nodeValue);
+    }
+  }
+
+  //The special "README/VIP" attribute is now simply a tag.
+  if ($dom->getElementsByTagName('priority')->length > 0){
+    $priority = $dom->getElementsByTagName('text')->item(0)->nodeValue;
+    if (strtoupper($priority) == 'VIP'  | strtoupper($priority) == 'README'){
+      $logentry->addTag('README');
+    }
+  }
+
+  //The body field was and still is an optional field.
+  if ($dom->getElementsByTagName('text')->length > 0){
+    $text_type = $dom->getElementsByTagName('text')->item(0)->getAttribute('type');
+    if (stristr($text_type,'html')){
+      $logentry->setBody($dom->getElementsByTagName('text')->item(0)->nodeValue, 'filtered_html');
+    }else{
+      $logentry->setBody($dom->getElementsByTagName('text')->item(0)->nodeValue);
+    }
+  }
+
+  // Attachments
+  for ($i=0; $i < $dom->getElementsByTagName('attachment')->length; $i++){
+    $att_name = $dom->getElementsByTagName('attachment')->item($i)->getAttribute('name');
+    $att_type = $dom->getElementsByTagName('attachment')->item($i)->getAttribute('type');
+    $att_file = $dom->getElementsByTagName('attachment')->item($i)->nodeValue;
+    $file = $cclogNewDir."/".$att_file; 
+    $logentry->addAttachment($file, $att_name, $att_type);
+  }      
+  return $logentry;
+
+}
+        
