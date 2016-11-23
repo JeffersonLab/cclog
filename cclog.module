@@ -233,10 +233,7 @@ function cclog_make_node_from_logentry(Logentry $logentry){
  * @throws
  */
 function cclog_logentry_from_logxml($file){
-  global $cclogNewDir;
-
-  // Ensure the elog module is loaded
-  //module_load_include('php', 'elog', 'Logentry.inc');
+ 
   $doc = new DOMDocument();
   $doc->load($file);
   $dom = $doc->getElementsByTagName('log_entry')->item(0);
@@ -290,12 +287,13 @@ function cclog_logentry_from_logxml($file){
     }
   }
 
-  // Attachments
+  // Attachments will be in the directory with the xml file.
+  $pathParts = pathinfo($file);  
   for ($i=0; $i < $dom->getElementsByTagName('attachment')->length; $i++){
     $att_name = $dom->getElementsByTagName('attachment')->item($i)->getAttribute('name');
     $att_type = $dom->getElementsByTagName('attachment')->item($i)->getAttribute('type');
     $att_file = $dom->getElementsByTagName('attachment')->item($i)->nodeValue;
-    $file = $cclogNewDir."/".$att_file; 
+    $file = $pathParts['dirname']."/".$att_file; 
     $logentry->addAttachment($file, $att_name, $att_type);
   }      
   return $logentry;
